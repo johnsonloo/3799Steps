@@ -14,21 +14,58 @@
   const worldWidth = margin * 2 + stepW * numSteps;
   const worldHeight = margin * 2 + stepH * numSteps;
 
-  // load images from assets/ folder
+  // load and resize images (like Python load_and_resize function)
+  const loadAndResize = (src, height, width = null) =>
+    new Promise(res => {
+      const img = new Image();
+      img.onload = () => {
+        // Calculate dimensions
+        let targetWidth, targetHeight;
+        if (width === null) {
+          const scale = height / img.height;
+          targetWidth = Math.round(img.width * scale);
+          targetHeight = height;
+        } else {
+          targetWidth = width;
+          targetHeight = height;
+        }
+        
+        // Create resized canvas
+        const canvas = document.createElement('canvas');
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+        res(canvas);
+      };
+      img.onerror = () => {
+        // Create red circle placeholder (like Python)
+        const canvas = document.createElement('canvas');
+        canvas.width = height;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'rgba(255, 0, 0, 255)';
+        ctx.beginPath();
+        ctx.arc(height/2, height/2, height/2 - 2, 0, 2*Math.PI);
+        ctx.fill();
+        res(canvas);
+      };
+      img.src = src;
+    });
+
+  // Simple image loader for background
   const loadImg = src =>
     new Promise(res => {
       const img = new Image();
       img.onload = () => res(img);
       img.onerror = () => {
-        // Placeholder if image fails to load
+        // Create a simple placeholder
         const canvas = document.createElement('canvas');
-        canvas.width = stepH;
-        canvas.height = stepH;
-        const pctx = canvas.getContext('2d');
-        pctx.fillStyle = 'red';
-        pctx.beginPath();
-        pctx.arc(stepH/2, stepH/2, stepH/2-2, 0, 2*Math.PI);
-        pctx.fill();
+        canvas.width = 100;
+        canvas.height = 100;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'green';
+        ctx.fillRect(0, 0, 100, 100);
         res(canvas);
       };
       img.src = src;
@@ -43,23 +80,9 @@
     }
   }
 
-  // Helper to resize image/canvas to desired height, keeping aspect ratio
-  function resizeToHeight(img, height) {
-    if (!img.width || !img.height) return img; // Handle placeholder canvas
-    const aspect = img.width / img.height;
-    const width = Math.round(height * aspect);
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0, 0, width, height);
-    return canvas;
-  }
-
-  let char1Img = await loadImg('assets/resources/images/wanning.png');
-  char1Img = resizeToHeight(char1Img, stepH);
-  let char2Img = await loadImg('assets/resources/images/moran.png');
-  char2Img = resizeToHeight(char2Img, stepH);
+  // Load and resize character images using the Python-like function
+  const char1Img = await loadAndResize('assets/resources/images/wanning.png', stepH);
+  const char2Img = await loadAndResize('assets/resources/images/moran.png', stepH);
   const flagImgOrig = await loadImg('assets/resources/images/flag.png');
 
   let stepPos = 0;
