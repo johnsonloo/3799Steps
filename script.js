@@ -19,10 +19,18 @@
       img.onload = () => res(img);
       img.src = src;
     });
-  const bgImg = await loadImg('assests/resources/images/bg.png');
-  const char1Img = await loadImg('assests/resources/images//wanning.png');
-  const char2Img = await loadImg('assests/resources/images//moran.png');
-  const flagImgOrig = await loadImg('assests/resources/images//flag.png');
+  const bgImg       = await loadImg('assets/bg.png');
+  const char1Img    = await loadImg('assets/wanning.png');
+  const char2Img    = await loadImg('assets/moran.png');
+  const flagImgOrig = await loadImg('assets/flag.png');
+
+  // Precompute display sizes for characters
+  const char1Scale = stepH / char1Img.height;
+  const char1W     = char1Img.width * char1Scale;
+  const char1H     = stepH;
+  const char2Scale = stepH / char2Img.height;
+  const char2W     = char2Img.width * char2Scale;
+  const char2H     = stepH;
 
   let stepPos = 0;
   let gameOver = false;
@@ -36,7 +44,7 @@
   function draw() {
     // compute camera offset so char1 is centered
     const { x: cx, y: cy } = getStepXY(stepPos);
-    const camX = cx + offsetX + char1Img.width/2 - viewW/2;
+    const camX = cx + offsetX + char1W/2 - viewW/2;
     const camY = cy + stepH/2 - viewH/2;
 
     // draw background
@@ -84,7 +92,7 @@
       // last step: draw flag image
       if (i === numSteps - 1) {
         const desiredW = stepW * 1.2;
-        const scale = desiredW / flagImgOrig.width;
+        const scale    = desiredW / flagImgOrig.width;
         const desiredH = flagImgOrig.height * scale;
         const fx = sx + (stepW - desiredW)/2;
         const fy = sy - desiredH;
@@ -95,11 +103,11 @@
     // draw characters
     const c2 = getStepXY(stepPos);
     const c2x = c2.x + 10 - camX;
-    const c2y = c2.y + stepH/2 - char2Img.height/2 - camY;
+    const c2y = c2.y + stepH/2 - char2H/2 - camY;
     const c1x = c2x + offsetX;
     const c1y = c2y;
-    ctx.drawImage(char2Img, c2x, c2y);
-    ctx.drawImage(char1Img, c1x, c1y);
+    ctx.drawImage(char2Img, c2x, c2y, char2W, char2H);
+    ctx.drawImage(char1Img, c1x, c1y, char1W, char1H);
 
     // end state text
     if (stepPos === numSteps - 1) {
@@ -135,8 +143,7 @@
   });
   document.getElementById('btnQuit').addEventListener('click', () => {
     gameOver = true;
-    // for GitHub Pages, we cannot close the window;
-    // instead we just disable the Up button
+    // disable the Up button
     document.getElementById('btnUp').disabled = true;
   });
 
