@@ -17,13 +17,25 @@
     new Promise(res => {
       const img = new Image();
       img.onload = () => res(img);
+      img.onerror = () => {
+        // Placeholder if image fails to load
+        const canvas = document.createElement('canvas');
+        canvas.width = stepH;
+        canvas.height = stepH;
+        const pctx = canvas.getContext('2d');
+        pctx.fillStyle = 'red';
+        pctx.beginPath();
+        pctx.arc(stepH/2, stepH/2, stepH/2-2, 0, 2*Math.PI);
+        pctx.fill();
+        res(canvas);
+      };
       img.src = src;
     });
 
-  const bgImg = await loadImg('/assests/resources/images/bg.png');
-  const char1Img = await loadImg('/assests/resources/images/wanning.png');
-  const char2Img = await loadImg('/assests/resources/images/moran.png');
-  const flagImgOrig = await loadImg('/assests/resources/images/flag.png');
+  const bgImg = await loadImg('assets/resources/images/bg.png');
+  const char1Img = await loadImg('assets/resources/images/wanning.png');
+  const char2Img = await loadImg('assets/resources/images/moran.png');
+  const flagImgOrig = await loadImg('assets/resources/images/flag.png');
 
   let stepPos = 0;
   let gameOver = false;
@@ -37,7 +49,7 @@
   function draw() {
     // compute camera offset so char1 is centered
     const { x: cx, y: cy } = getStepXY(stepPos);
-    const camX = cx + offsetX + char1Img.width/2 - viewW/2;
+    const camX = cx + offsetX + (char1Img.width ? char1Img.width/2 : stepH/2) - viewW/2;
     const camY = cy + stepH/2 - viewH/2;
 
     // draw background
@@ -106,7 +118,18 @@
     if (stepPos === numSteps - 1) {
       const text = `Chu Wanning carries Mo Ran ${numSteps} steps, is a significant moment in the story, specifically when Mo Ran is injured and Chu Wanning carries him back to the sect after they worked together to mend the heavenly rift.`;
       const wrapWidth = 32;
-      const lines = text.match(new RegExp(`.{1,${wrapWidth}}(\\s|$)`, 'g'));
+      // Improved word wrapping
+      const words = text.split(' ');
+      let lines = [];
+      let line = '';
+      for (let w of words) {
+        if ((line + w).length > wrapWidth) {
+          lines.push(line.trim());
+          line = '';
+        }
+        line += w + ' ';
+      }
+      if (line) lines.push(line.trim());
       const fontSize = 20;
       ctx.font = `${fontSize}px sans-serif`;
       const lineHeight = fontSize * 1.2;
