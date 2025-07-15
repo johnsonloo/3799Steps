@@ -11,6 +11,8 @@
   const margin = 60;
   const stepW = 90, stepH = 50;
   const viewW = canvas.width, viewH = canvas.height;
+  const worldWidth = margin * 2 + stepW * numSteps;
+  const worldHeight = margin * 2 + stepH * numSteps;
 
   // load images from assets/ folder
   const loadImg = src =>
@@ -33,8 +35,31 @@
     });
 
   const bgImg = await loadImg('assets/resources/images/bg.png');
-  const char1Img = await loadImg('assets/resources/images/wanning.png');
-  const char2Img = await loadImg('assets/resources/images/moran.png');
+  
+  // Helper to overlay images with proper transparency handling (similar to Python overlay function)
+  function overlay(ctx, fg, x, y) {
+    if (fg.tagName === 'CANVAS' || fg.tagName === 'IMG') {
+      ctx.drawImage(fg, x, y);
+    }
+  }
+
+  // Helper to resize image/canvas to desired height, keeping aspect ratio
+  function resizeToHeight(img, height) {
+    if (!img.width || !img.height) return img; // Handle placeholder canvas
+    const aspect = img.width / img.height;
+    const width = Math.round(height * aspect);
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, width, height);
+    return canvas;
+  }
+
+  let char1Img = await loadImg('assets/resources/images/wanning.png');
+  char1Img = resizeToHeight(char1Img, stepH);
+  let char2Img = await loadImg('assets/resources/images/moran.png');
+  char2Img = resizeToHeight(char2Img, stepH);
   const flagImgOrig = await loadImg('assets/resources/images/flag.png');
 
   let stepPos = 0;
@@ -47,30 +72,43 @@
   }
 
   function draw() {
-    // compute camera offset so char1 is centered
-    const { x: cx, y: cy } = getStepXY(stepPos);
-    const camX = cx + offsetX + (char1Img.width ? char1Img.width/2 : stepH/2) - viewW/2;
-    const camY = cy + stepH/2 - viewH/2;
+    // Character world position (similar to Python)
+    const { x, y } = getStepXY(stepPos);
+    const char2X = x + 10;
+    const char2Y = y + stepH/2 - char2Img.height/2;
+    const char1X = char2X + offsetX;
+    const char1Y = char2Y;
 
-    // draw background
-    ctx.clearRect(0,0,viewW,viewH);
+    // Camera: always follows char1, keeping her centered (like Python camera logic)
+    const camCx = char1X + char1Img.width/2;
+    const camCy = char1Y + char1Img.height/2;
+    const halfWinW = viewW / 2;
+    const halfWinH = viewH / 2;
+    let roiX1 = camCx - halfWinW;
+    let roiY1 = camCy - halfWinH;
+    
+    // Clamp camera to world bounds
+    roiX1 = Math.max(0, Math.min(worldWidth - viewW, roiX1));
+    roiY1 = Math.max(0, Math.min(worldHeight - viewH, roiY1));
+
+    // Start with fresh background
+    ctx.clearRect(0, 0, viewW, viewH);
     ctx.drawImage(bgImg, 0, 0, viewW, viewH);
 
-    // draw stairs
-    const first = Math.max(0, Math.floor((camX - margin) / stepW) - 2);
-    const last  = Math.min(numSteps-1,
-      Math.ceil((camX + viewW - margin) / stepW) + 2
-    );
+    // Dynamically draw only visible stairs (like Python)
+    const firstVisibleIdx = Math.max(0, Math.floor((roiX1 - margin) / stepW) - 2);
+    const lastVisibleIdx = Math.min(numSteps-1, Math.floor((roiX1 + viewW - margin) / stepW) + 2);
     ctx.lineWidth = 7;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
     ctx.font = '16px sans-serif';
 
-    for (let i = first; i <= last; i++) {
+    for (let i = firstVisibleIdx; i <= lastVisibleIdx; i++) {
       const { x, y } = getStepXY(i);
-      const sx = x - camX;
-      const sy = y - camY;
-      // surface
+      const sx = x - roiX1;
+      const sy = y - roiY1;
+      
+      // Draw step surface (polygon like Python)
       ctx.fillStyle = 'rgb(80,80,80)';
       ctx.beginPath();
       ctx.moveTo(sx, sy);
@@ -79,87 +117,119 @@
       ctx.lineTo(sx, sy + stepH);
       ctx.closePath();
       ctx.fill();
-      // edges
+      
+      // Draw step edges (lines like Python)
       ctx.strokeStyle = 'rgb(60,60,60)';
+      ctx.lineWidth = 7;
       ctx.beginPath();
       ctx.moveTo(sx, sy);
       ctx.lineTo(sx + stepW, sy);
       ctx.stroke();
+      
       if (i < numSteps) {
         ctx.beginPath();
         ctx.moveTo(sx, sy);
         ctx.lineTo(sx, sy + stepH);
         ctx.stroke();
       }
-      // number
+      
+      // Step number
       ctx.fillStyle = 'rgb(30,30,30)';
-      ctx.fillText(String(i+1), sx + 10, sy + stepH/2);
-      // last step: draw flag image
+      ctx.fillText(String(i + 1), sx + 10, sy + stepH/2);
+      
+      // Flag on last step (scaled like Python)
       if (i === numSteps - 1) {
-        const desiredW = stepW * 1.2;
-        const scale = desiredW / flagImgOrig.width;
-        const desiredH = flagImgOrig.height * scale;
-        const fx = sx + (stepW - desiredW)/2;
-        const fy = sy - desiredH;
-        ctx.drawImage(flagImgOrig, fx, fy, desiredW, desiredH);
+        const desiredWidth = stepW * 1.2;
+        const scale = desiredWidth / flagImgOrig.width;
+        const desiredHeight = flagImgOrig.height * scale;
+        const flagX = sx + (stepW - desiredWidth) / 2;
+        const flagY = sy - desiredHeight;
+        overlay(ctx, flagImgOrig, flagX, flagY);
       }
     }
 
-    // draw characters
-    const c2 = getStepXY(stepPos);
-    const c2x = c2.x + 10 - camX;
-    const c2y = c2.y + stepH/2 - char2Img.height/2 - camY;
-    const c1x = c2x + offsetX;
-    const c1y = c2y;
-    ctx.drawImage(char2Img, c2x, c2y);
-    ctx.drawImage(char1Img, c1x, c1y);
+    // Draw characters (relative to viewport like Python)
+    const drawChar2X = char2X - roiX1;
+    const drawChar2Y = char2Y - roiY1;
+    const drawChar1X = char1X - roiX1;
+    const drawChar1Y = char1Y - roiY1;
+    overlay(ctx, char2Img, drawChar2X, drawChar2Y);
+    overlay(ctx, char1Img, drawChar1X, drawChar1Y);
 
-    // end state text
+    // End state text with centered overlay (like Python draw_text_with_bg)
     if (stepPos === numSteps - 1) {
       const text = `Chu Wanning carries Mo Ran ${numSteps} steps, is a significant moment in the story, specifically when Mo Ran is injured and Chu Wanning carries him back to the sect after they worked together to mend the heavenly rift.`;
       const wrapWidth = 32;
-      // Improved word wrapping
+      
+      // Word wrapping (like Python textwrap.wrap)
       const words = text.split(' ');
       let lines = [];
       let line = '';
       for (let w of words) {
         if ((line + w).length > wrapWidth) {
-          lines.push(line.trim());
-          line = '';
+          if (line) lines.push(line.trim());
+          line = w + ' ';
+        } else {
+          line += w + ' ';
         }
-        line += w + ' ';
       }
       if (line) lines.push(line.trim());
+      
       const fontSize = 20;
+      const scale = 1.05;
       ctx.font = `${fontSize}px sans-serif`;
       const lineHeight = fontSize * 1.2;
+      const thickness = 2;
+      const padX = 60;
+      const padY = 40;
+      
+      // Calculate text box dimensions
       const maxLineW = Math.max(...lines.map(l => ctx.measureText(l).width));
-      const boxW = maxLineW + 80;
-      const boxH = lines.length * lineHeight + 60;
-      const bx = (viewW - boxW) / 2;
-      const by = (viewH - boxH) / 2;
-      // semi-transparent bg
+      const boxW = maxLineW + 2 * padX;
+      const boxH = lines.length * lineHeight + 2 * padY;
+      const centerX = viewW / 2;
+      const centerY = viewH / 2;
+      const bx = centerX - boxW / 2;
+      const by = centerY - boxH / 2;
+      
+      // Semi-transparent background (like Python overlay)
       ctx.fillStyle = 'rgba(24,24,24,0.5)';
       ctx.fillRect(bx, by, boxW, boxH);
-      // text
-      ctx.fillStyle = '#fff';
+      
+      // White text
+      ctx.fillStyle = 'rgb(255,255,255)';
       ctx.textAlign = 'left';
       lines.forEach((line, i) => {
-        ctx.fillText(line, bx + 40, by + 40 + i * lineHeight);
+        const textX = bx + padX;
+        const textY = by + padY + (i + 1) * lineHeight - 10;
+        ctx.fillText(line, textX, textY);
       });
     }
   }
 
-  // button handlers
+  // Button handlers (like Python key handlers)
   document.getElementById('btnUp').addEventListener('click', () => {
-    if (stepPos < numSteps - 1) {
+    if (!gameOver && stepPos < numSteps - 1) {
       stepPos++;
       draw();
     }
   });
+  
   document.getElementById('btnQuit').addEventListener('click', () => {
     gameOver = true;
     document.getElementById('btnUp').disabled = true;
+  });
+
+  // Keyboard controls (like Python key handling)
+  document.addEventListener('keydown', (e) => {
+    const key = e.key.toLowerCase();
+    if (key === 'u' && !gameOver && stepPos < numSteps - 1) {
+      stepPos++;
+      draw();
+    } else if (key === 'q') {
+      gameOver = true;
+      document.getElementById('btnUp').disabled = true;
+    }
   });
 
   // initial draw
