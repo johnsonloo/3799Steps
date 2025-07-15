@@ -19,10 +19,11 @@
       img.onload = () => res(img);
       img.src = src;
     });
-  const bgImg = await loadImg('assests/resources/images/bg.png');
-  const char1Img = await loadImg('assests/resources/images/wanning.png');
-  const char2Img = await loadImg('assests/resources/images//moran.png');
-  const flagImgOrig = await loadImg('assests/resources/images//flag.png');
+
+  const bgImg = await loadImg('/assests/resources/images/bg.png');
+  const char1Img = await loadImg('/assests/resources/images/wanning.png');
+  const char2Img = await loadImg('/assests/resources/images/moran.png');
+  const flagImgOrig = await loadImg('/assests/resources/images/flag.png');
 
   let stepPos = 0;
   let gameOver = false;
