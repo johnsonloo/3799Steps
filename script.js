@@ -1,260 +1,290 @@
-(async () => {
-  const canvas = document.getElementById('gameCanvas');
-  const ctx = canvas.getContext('2d');
+// Simple working version of the 3799 Steps game
+console.log('Game script loading...');
 
-  // load config
-  const cfg = await fetch('config.json').then(r => r.json());
-  const numSteps = cfg.numSteps || 3799;
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
 
-  // settings
-  const offsetX = 10;
-  const margin = 60;
-  const stepW = 90, stepH = 50;
-  const viewW = canvas.width, viewH = canvas.height;
-  const worldWidth = margin * 2 + stepW * numSteps;
-  const worldHeight = margin * 2 + stepH * numSteps;
+if (!canvas || !ctx) {
+  console.error('Canvas or context not found!');
+  throw new Error('Canvas setup failed');
+}
 
-  // load and resize images (like Python load_and_resize function)
-  const loadAndResize = (src, height, width = null) =>
-    new Promise(res => {
-      const img = new Image();
-      img.onload = () => {
-        // Calculate dimensions
-        let targetWidth, targetHeight;
-        if (width === null) {
-          const scale = height / img.height;
-          targetWidth = Math.round(img.width * scale);
-          targetHeight = height;
-        } else {
-          targetWidth = width;
-          targetHeight = height;
-        }
-        
-        // Create resized canvas
-        const canvas = document.createElement('canvas');
-        canvas.width = targetWidth;
-        canvas.height = targetHeight;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
-        res(canvas);
-      };
-      img.onerror = () => {
-        // Create red circle placeholder (like Python)
-        const canvas = document.createElement('canvas');
-        canvas.width = height;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = 'rgba(255, 0, 0, 255)';
-        ctx.beginPath();
-        ctx.arc(height/2, height/2, height/2 - 2, 0, 2*Math.PI);
-        ctx.fill();
-        res(canvas);
-      };
-      img.src = src;
-    });
+console.log('Canvas loaded:', canvas.width, canvas.height);
 
-  // Simple image loader for background
-  const loadImg = src =>
-    new Promise(res => {
-      const img = new Image();
-      img.onload = () => res(img);
-      img.onerror = () => {
-        // Create a simple placeholder
-        const canvas = document.createElement('canvas');
-        canvas.width = 100;
-        canvas.height = 100;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = 'green';
-        ctx.fillRect(0, 0, 100, 100);
-        res(canvas);
-      };
-      img.src = src;
-    });
+// Game settings
+const numSteps = 3799;
+const stepW = 90;
+const stepH = 50;
+const margin = 60;
+const offsetX = 10;
+const viewW = canvas.width;
+const viewH = canvas.height;
 
-  const bgImg = await loadImg('assets/resources/images/bg.png');
-  
-  // Helper to overlay images with proper transparency handling (similar to Python overlay function)
-  function overlay(ctx, fg, x, y) {
-    if (fg.tagName === 'CANVAS' || fg.tagName === 'IMG') {
-      ctx.drawImage(fg, x, y);
-    }
+// Game state
+let stepPos = 0;
+let gameOver = false;
+
+
+// Asset loading system with robust error handling and loading indicator
+let bgImg = null, char1Img = null, char2Img = null, flagImg = null;
+let assetsLoaded = false;
+let assetsFailed = false;
+let assetsToLoad = 4;
+let assetsLoadedCount = 0;
+
+function showLoadingScreen() {
+  ctx.clearRect(0, 0, viewW, viewH);
+  ctx.fillStyle = '#222';
+  ctx.fillRect(0, 0, viewW, viewH);
+  ctx.fillStyle = 'white';
+  ctx.font = 'bold 24px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Loading game assets...', viewW/2, viewH/2);
+}
+
+function assetLoaded() {
+  assetsLoadedCount++;
+  if (assetsLoadedCount === assetsToLoad) {
+    assetsLoaded = true;
+    draw();
+    console.log('All assets loaded!');
   }
+}
 
-  // Load and resize character images using the Python-like function
-  const char1Img = await loadAndResize('assets/resources/images/wanning.png', stepH);
-  const char2Img = await loadAndResize('assets/resources/images/moran.png', stepH);
-  const flagImgOrig = await loadImg('assets/resources/images/flag.png');
+function assetFailed(name) {
+  assetsFailed = true;
+  console.warn(name + ' failed to load. Using fallback.');
+  assetLoaded();
+}
 
-  let stepPos = 0;
-  let gameOver = false;
+function loadAssets() {
+  showLoadingScreen();
+  // Background
+  bgImg = new window.Image();
+  bgImg.onload = assetLoaded;
+  bgImg.onerror = () => assetFailed('Background');
+  bgImg.src = 'assets/resources/images/bg.png';
 
-  function getStepXY(i) {
-    const x = margin + i * stepW;
-    const y = margin + (numSteps - i - 1) * stepH;
-    return { x, y };
+  // Character 1 (Chu Wanning)
+  char1Img = new window.Image();
+  char1Img.onload = assetLoaded;
+  char1Img.onerror = () => assetFailed('Chu Wanning');
+  char1Img.src = 'assets/resources/images/wanning.png';
+
+  // Character 2 (Mo Ran)
+  char2Img = new window.Image();
+  char2Img.onload = assetLoaded;
+  char2Img.onerror = () => assetFailed('Mo Ran');
+  char2Img.src = 'assets/resources/images/moran.png';
+
+  // Flag
+  flagImg = new window.Image();
+  flagImg.onload = assetLoaded;
+  flagImg.onerror = () => assetFailed('Flag');
+  flagImg.src = 'assets/resources/images/flag.png';
+}
+
+loadAssets();
+
+function getStepXY(i) {
+  const x = margin + i * stepW;
+  const y = margin + (numSteps - i - 1) * stepH;
+  return { x, y };
+}
+
+function updateDebugInfo() {
+  try {
+    document.getElementById('stepInfo').textContent = `Step: ${stepPos + 1} / ${numSteps}`;
+  } catch (e) {
+    console.log('Debug update failed:', e);
   }
+}
 
-  function draw() {
-    // Character world position (similar to Python)
-    const { x, y } = getStepXY(stepPos);
-    const char2X = x + 10;
-    const char2Y = y + stepH/2 - char2Img.height/2;
-    const char1X = char2X + offsetX;
-    const char1Y = char2Y;
 
-    // Camera: always follows char1, keeping her centered (like Python camera logic)
-    const camCx = char1X + char1Img.width/2;
-    const camCy = char1Y + char1Img.height/2;
-    const halfWinW = viewW / 2;
-    const halfWinH = viewH / 2;
-    let roiX1 = camCx - halfWinW;
-    let roiY1 = camCy - halfWinH;
-    
-    // Clamp camera to world bounds
-    roiX1 = Math.max(0, Math.min(worldWidth - viewW, roiX1));
-    roiY1 = Math.max(0, Math.min(worldHeight - viewH, roiY1));
+function draw() {
+  if (!assetsLoaded && !assetsFailed) {
+    showLoadingScreen();
+    return;
+  }
+  console.log('Drawing at step:', stepPos);
 
-    // Start with fresh background
-    ctx.clearRect(0, 0, viewW, viewH);
+  // Clear canvas
+  ctx.clearRect(0, 0, viewW, viewH);
+
+  // Draw background
+  if (bgImg && bgImg.complete && !assetsFailed) {
     ctx.drawImage(bgImg, 0, 0, viewW, viewH);
+  } else {
+    // Fallback background
+    ctx.fillStyle = '#1a3a1a';
+    ctx.fillRect(0, 0, viewW, viewH);
+  }
 
-    // Dynamically draw only visible stairs (like Python)
-    const firstVisibleIdx = Math.max(0, Math.floor((roiX1 - margin) / stepW) - 2);
-    const lastVisibleIdx = Math.min(numSteps-1, Math.floor((roiX1 + viewW - margin) / stepW) + 2);
-    ctx.lineWidth = 7;
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'left';
-    ctx.font = '16px sans-serif';
+  // Update debug info
+  updateDebugInfo();
 
-    for (let i = firstVisibleIdx; i <= lastVisibleIdx; i++) {
-      const { x, y } = getStepXY(i);
-      const sx = x - roiX1;
-      const sy = y - roiY1;
-      
-      // Draw step surface (polygon like Python)
-      ctx.fillStyle = 'rgb(80,80,80)';
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.lineTo(sx + stepW, sy);
-      ctx.lineTo(sx + stepW, sy + stepH);
-      ctx.lineTo(sx, sy + stepH);
-      ctx.closePath();
-      ctx.fill();
-      
-      // Draw step edges (lines like Python)
-      ctx.strokeStyle = 'rgb(60,60,60)';
-      ctx.lineWidth = 7;
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.lineTo(sx + stepW, sy);
-      ctx.stroke();
-      
-      if (i < numSteps) {
-        ctx.beginPath();
-        ctx.moveTo(sx, sy);
-        ctx.lineTo(sx, sy + stepH);
-        ctx.stroke();
-      }
-      
+  // Calculate character position
+  const { x, y } = getStepXY(stepPos);
+  const charX = x + 20;
+  const charY = y + stepH/2 - 25;
+
+  // Simple camera - center on character
+  const camX = charX - viewW/2;
+  const camY = charY - viewH/2;
+
+  // Draw visible steps
+  const startStep = Math.max(0, stepPos - 10);
+  const endStep = Math.min(numSteps - 1, stepPos + 10);
+
+  for (let i = startStep; i <= endStep; i++) {
+    const stepXY = getStepXY(i);
+    const screenX = stepXY.x - camX;
+    const screenY = stepXY.y - camY;
+
+    // Only draw if visible
+    if (screenX > -stepW && screenX < viewW + stepW &&
+        screenY > -stepH && screenY < viewH + stepH) {
+
+      // Draw step
+      ctx.fillStyle = i === stepPos ? '#606060' : '#404040';
+      ctx.fillRect(screenX, screenY, stepW, stepH);
+
+      // Step border
+      ctx.strokeStyle = '#808080';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(screenX, screenY, stepW, stepH);
+
       // Step number
-      ctx.fillStyle = 'rgb(30,30,30)';
-      ctx.fillText(String(i + 1), sx + 10, sy + stepH/2);
-      
-      // Flag on last step (scaled like Python)
-      if (i === numSteps - 1) {
-        const desiredWidth = stepW * 1.2;
-        const scale = desiredWidth / flagImgOrig.width;
-        const desiredHeight = flagImgOrig.height * scale;
-        const flagX = sx + (stepW - desiredWidth) / 2;
-        const flagY = sy - desiredHeight;
-        overlay(ctx, flagImgOrig, flagX, flagY);
-      }
-    }
+      ctx.fillStyle = 'white';
+      ctx.font = '14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(String(i + 1), screenX + stepW/2, screenY + stepH/2 + 5);
 
-    // Draw characters (relative to viewport like Python)
-    const drawChar2X = char2X - roiX1;
-    const drawChar2Y = char2Y - roiY1;
-    const drawChar1X = char1X - roiX1;
-    const drawChar1Y = char1Y - roiY1;
-    overlay(ctx, char2Img, drawChar2X, drawChar2Y);
-    overlay(ctx, char1Img, drawChar1X, drawChar1Y);
-
-    // End state text with centered overlay (like Python draw_text_with_bg)
-    if (stepPos === numSteps - 1) {
-      const text = `Chu Wanning carries Mo Ran ${numSteps} steps, is a significant moment in the story, specifically when Mo Ran is injured and Chu Wanning carries him back to the sect after they worked together to mend the heavenly rift.`;
-      const wrapWidth = 32;
-      
-      // Word wrapping (like Python textwrap.wrap)
-      const words = text.split(' ');
-      let lines = [];
-      let line = '';
-      for (let w of words) {
-        if ((line + w).length > wrapWidth) {
-          if (line) lines.push(line.trim());
-          line = w + ' ';
-        } else {
-          line += w + ' ';
-        }
+      // Highlight current step
+      if (i === stepPos) {
+        ctx.strokeStyle = 'yellow';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(screenX - 2, screenY - 2, stepW + 4, stepH + 4);
       }
-      if (line) lines.push(line.trim());
-      
-      const fontSize = 20;
-      const scale = 1.05;
-      ctx.font = `${fontSize}px sans-serif`;
-      const lineHeight = fontSize * 1.2;
-      const thickness = 2;
-      const padX = 60;
-      const padY = 40;
-      
-      // Calculate text box dimensions
-      const maxLineW = Math.max(...lines.map(l => ctx.measureText(l).width));
-      const boxW = maxLineW + 2 * padX;
-      const boxH = lines.length * lineHeight + 2 * padY;
-      const centerX = viewW / 2;
-      const centerY = viewH / 2;
-      const bx = centerX - boxW / 2;
-      const by = centerY - boxH / 2;
-      
-      // Semi-transparent background (like Python overlay)
-      ctx.fillStyle = 'rgba(24,24,24,0.5)';
-      ctx.fillRect(bx, by, boxW, boxH);
-      
-      // White text
-      ctx.fillStyle = 'rgb(255,255,255)';
-      ctx.textAlign = 'left';
-      lines.forEach((line, i) => {
-        const textX = bx + padX;
-        const textY = by + padY + (i + 1) * lineHeight - 10;
-        ctx.fillText(line, textX, textY);
-      });
     }
   }
 
-  // Button handlers (like Python key handlers)
-  document.getElementById('btnUp').addEventListener('click', () => {
-    if (!gameOver && stepPos < numSteps - 1) {
-      stepPos++;
-      draw();
-    }
-  });
-  
-  document.getElementById('btnQuit').addEventListener('click', () => {
-    gameOver = true;
-    document.getElementById('btnUp').disabled = true;
-  });
+  // Draw characters on current step
+  const charScreenX = charX - camX;
+  const charScreenY = charY - camY;
 
-  // Keyboard controls (like Python key handling)
-  document.addEventListener('keydown', (e) => {
-    const key = e.key.toLowerCase();
-    if (key === 'u' && !gameOver && stepPos < numSteps - 1) {
-      stepPos++;
-      draw();
-    } else if (key === 'q') {
-      gameOver = true;
-      document.getElementById('btnUp').disabled = true;
-    }
-  });
+  // Character 1 (Mo Ran) - red or image
+  if (char2Img && char2Img.complete && !assetsFailed) {
+    const scale = stepH / char2Img.height;
+    const charW = char2Img.width * scale;
+    const charH = stepH;
+    ctx.drawImage(char2Img, charScreenX, charScreenY, charW, charH);
+  } else {
+    // Fallback red rectangle
+    ctx.fillStyle = 'red';
+    ctx.fillRect(charScreenX, charScreenY, 20, 40);
+    ctx.fillStyle = 'darkred';
+    ctx.fillRect(charScreenX + 2, charScreenY + 2, 16, 15); // head
+  }
 
-  // initial draw
+  // Character 2 (Chu Wanning) - blue or image
+  if (char1Img && char1Img.complete && !assetsFailed) {
+    const scale = stepH / char1Img.height;
+    const charW = char1Img.width * scale;
+    const charH = stepH;
+    ctx.drawImage(char1Img, charScreenX + 30, charScreenY, charW, charH);
+  } else {
+    // Fallback blue rectangle
+    ctx.fillStyle = 'blue';
+    ctx.fillRect(charScreenX + 25, charScreenY, 20, 40);
+    ctx.fillStyle = 'darkblue';
+    ctx.fillRect(charScreenX + 27, charScreenY + 2, 16, 15); // head
+  }
+
+  // Draw goal flag on last step
+  if (stepPos >= numSteps - 20) { // Show flag when near end
+    const goalXY = getStepXY(numSteps - 1);
+    const flagScreenX = goalXY.x - camX;
+    const flagScreenY = goalXY.y - camY - 50;
+
+    if (flagScreenX > -50 && flagScreenX < viewW + 50) {
+      if (flagImg && flagImg.complete && !assetsFailed) {
+        // Draw flag image
+        const flagW = stepW * 1.2;
+        const flagH = (flagImg.height / flagImg.width) * flagW;
+        ctx.drawImage(flagImg, flagScreenX + stepW/2 - flagW/2, flagScreenY, flagW, flagH);
+      } else {
+        // Fallback flag
+        // Flag pole
+        ctx.strokeStyle = 'brown';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(flagScreenX + stepW/2, flagScreenY);
+        ctx.lineTo(flagScreenX + stepW/2, flagScreenY + 60);
+        ctx.stroke();
+
+        // Flag
+        ctx.fillStyle = 'yellow';
+        ctx.fillRect(flagScreenX + stepW/2, flagScreenY, 30, 20);
+        ctx.fillStyle = 'red';
+        ctx.font = '12px sans-serif';
+        ctx.fillText('END', flagScreenX + stepW/2 + 5, flagScreenY + 12);
+      }
+    }
+  }
+
+  // Game completed message
+  if (stepPos === numSteps - 1) {
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.fillRect(0, 0, viewW, viewH);
+
+    ctx.fillStyle = 'white';
+    ctx.font = 'bold 24px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('JOURNEY COMPLETE!', viewW/2, viewH/2 - 60);
+
+    ctx.font = '18px sans-serif';
+    ctx.fillText(`Chu Wanning carries Mo Ran ${numSteps} steps`, viewW/2, viewH/2 - 20);
+    ctx.fillText('A significant moment in their story', viewW/2, viewH/2 + 10);
+
+    ctx.fillStyle = 'yellow';
+    ctx.font = '16px sans-serif';
+    ctx.fillText('Press R to reset', viewW/2, viewH/2 + 50);
+  }
+
+  console.log('Draw complete');
+}
+
+function resetGame() {
+  stepPos = 0;
+  gameOver = false;
+  document.getElementById('btnUp').disabled = false;
   draw();
-})();
+}
+
+function climbStep() {
+  if (!gameOver && stepPos < numSteps - 1) {
+    stepPos++;
+    draw();
+    console.log('Climbed to step:', stepPos + 1);
+  }
+}
+
+// Event handlers
+document.getElementById('btnUp').addEventListener('click', climbStep);
+document.getElementById('btnReset').addEventListener('click', resetGame);
+
+// Keyboard controls
+document.addEventListener('keydown', (e) => {
+  const key = e.key.toLowerCase();
+  if (key === 'u') {
+    climbStep();
+  } else if (key === 'r') {
+    resetGame();
+  }
+});
+
+// Initialize game
+console.log('Starting initial draw...');
+draw();
+console.log('Game ready!');
