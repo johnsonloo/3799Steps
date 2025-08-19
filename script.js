@@ -1,6 +1,7 @@
 // Simple working version of the 3799 Steps game
 console.log('Game script loading...');
 
+
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
@@ -9,16 +10,40 @@ if (!canvas || !ctx) {
   throw new Error('Canvas setup failed');
 }
 
+// Responsive canvas setup
+function resizeCanvas() {
+  // Use device pixel ratio for crisp rendering
+  const dpr = window.devicePixelRatio || 1;
+  // Target mobile-friendly size
+  let w = Math.min(window.innerWidth, 480);
+  let h = Math.min(window.innerHeight, 800);
+  // Landscape fallback
+  if (w > h) {
+    [w, h] = [h, w];
+  }
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+  ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform
+  ctx.scale(dpr, dpr);
+  viewW = w;
+  viewH = h;
+  draw();
+}
+window.addEventListener('resize', resizeCanvas);
+window.addEventListener('orientationchange', resizeCanvas);
+
 console.log('Canvas loaded:', canvas.width, canvas.height);
 
 // Game settings
 const numSteps = 3799;
-const stepW = 90;
-const stepH = 50;
-const margin = 60;
+let stepW = 90;
+let stepH = 50;
+let margin = 60;
 const offsetX = 10;
-const viewW = canvas.width;
-const viewH = canvas.height;
+let viewW = canvas.width;
+let viewH = canvas.height;
 
 // Game state
 let stepPos = 0;
@@ -101,7 +126,13 @@ function updateDebugInfo() {
 }
 
 
+
 function draw() {
+  // Dynamically scale step size and margin for mobile
+  stepW = Math.max(60, Math.floor(viewW / 6));
+  stepH = Math.max(30, Math.floor(viewH / 16));
+  margin = Math.max(20, Math.floor(viewH / 20));
+
   if (!assetsLoaded && !assetsFailed) {
     showLoadingScreen();
     return;
@@ -156,7 +187,7 @@ function draw() {
 
       // Step number
       ctx.fillStyle = 'white';
-      ctx.font = '14px sans-serif';
+      ctx.font = Math.max(12, Math.floor(stepH/3)) + 'px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(String(i + 1), screenX + stepW/2, screenY + stepH/2 + 5);
 
@@ -182,9 +213,9 @@ function draw() {
   } else {
     // Fallback red rectangle
     ctx.fillStyle = 'red';
-    ctx.fillRect(charScreenX, charScreenY, 20, 40);
+    ctx.fillRect(charScreenX, charScreenY, Math.max(16, Math.floor(stepW/4)), Math.max(32, Math.floor(stepH*0.8)));
     ctx.fillStyle = 'darkred';
-    ctx.fillRect(charScreenX + 2, charScreenY + 2, 16, 15); // head
+    ctx.fillRect(charScreenX + 2, charScreenY + 2, Math.max(12, Math.floor(stepW/5)), Math.max(12, Math.floor(stepH/4))); // head
   }
 
   // Character 2 (Chu Wanning) - blue or image
@@ -192,20 +223,20 @@ function draw() {
     const scale = stepH / char1Img.height;
     const charW = char1Img.width * scale;
     const charH = stepH;
-    ctx.drawImage(char1Img, charScreenX + 30, charScreenY, charW, charH);
+    ctx.drawImage(char1Img, charScreenX + Math.max(24, Math.floor(stepW/3)), charScreenY, charW, charH);
   } else {
     // Fallback blue rectangle
     ctx.fillStyle = 'blue';
-    ctx.fillRect(charScreenX + 25, charScreenY, 20, 40);
+    ctx.fillRect(charScreenX + Math.max(20, Math.floor(stepW/3)), charScreenY, Math.max(16, Math.floor(stepW/4)), Math.max(32, Math.floor(stepH*0.8)));
     ctx.fillStyle = 'darkblue';
-    ctx.fillRect(charScreenX + 27, charScreenY + 2, 16, 15); // head
+    ctx.fillRect(charScreenX + Math.max(22, Math.floor(stepW/3)+2), charScreenY + 2, Math.max(12, Math.floor(stepW/5)), Math.max(12, Math.floor(stepH/4))); // head
   }
 
   // Draw goal flag on last step
   if (stepPos >= numSteps - 20) { // Show flag when near end
     const goalXY = getStepXY(numSteps - 1);
     const flagScreenX = goalXY.x - camX;
-    const flagScreenY = goalXY.y - camY - 50;
+    const flagScreenY = goalXY.y - camY - Math.max(40, Math.floor(stepH));
 
     if (flagScreenX > -50 && flagScreenX < viewW + 50) {
       if (flagImg && flagImg.complete && !assetsFailed) {
@@ -217,18 +248,18 @@ function draw() {
         // Fallback flag
         // Flag pole
         ctx.strokeStyle = 'brown';
-        ctx.lineWidth = 4;
+        ctx.lineWidth = Math.max(3, Math.floor(stepW/30));
         ctx.beginPath();
         ctx.moveTo(flagScreenX + stepW/2, flagScreenY);
-        ctx.lineTo(flagScreenX + stepW/2, flagScreenY + 60);
+        ctx.lineTo(flagScreenX + stepW/2, flagScreenY + Math.max(40, Math.floor(stepH*1.2)));
         ctx.stroke();
 
         // Flag
         ctx.fillStyle = 'yellow';
-        ctx.fillRect(flagScreenX + stepW/2, flagScreenY, 30, 20);
+        ctx.fillRect(flagScreenX + stepW/2, flagScreenY, Math.max(24, Math.floor(stepW/3)), Math.max(16, Math.floor(stepH/3)));
         ctx.fillStyle = 'red';
-        ctx.font = '12px sans-serif';
-        ctx.fillText('END', flagScreenX + stepW/2 + 5, flagScreenY + 12);
+        ctx.font = Math.max(10, Math.floor(stepH/5)) + 'px sans-serif';
+        ctx.fillText('END', flagScreenX + stepW/2 + 5, flagScreenY + Math.max(10, Math.floor(stepH/6)));
       }
     }
   }
@@ -239,17 +270,17 @@ function draw() {
     ctx.fillRect(0, 0, viewW, viewH);
 
     ctx.fillStyle = 'white';
-    ctx.font = 'bold 24px sans-serif';
+    ctx.font = 'bold ' + Math.max(18, Math.floor(viewH/20)) + 'px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('JOURNEY COMPLETE!', viewW/2, viewH/2 - 60);
+    ctx.fillText('JOURNEY COMPLETE!', viewW/2, viewH/2 - Math.max(40, Math.floor(viewH/12)));
 
-    ctx.font = '18px sans-serif';
-    ctx.fillText(`Chu Wanning carries Mo Ran ${numSteps} steps`, viewW/2, viewH/2 - 20);
-    ctx.fillText('A significant moment in their story', viewW/2, viewH/2 + 10);
+    ctx.font = Math.max(14, Math.floor(viewH/32)) + 'px sans-serif';
+    ctx.fillText(`Chu Wanning carries Mo Ran ${numSteps} steps`, viewW/2, viewH/2 - Math.max(12, Math.floor(viewH/40)));
+    ctx.fillText('A significant moment in their story', viewW/2, viewH/2 + Math.max(8, Math.floor(viewH/60)));
 
     ctx.fillStyle = 'yellow';
-    ctx.font = '16px sans-serif';
-    ctx.fillText('Press R to reset', viewW/2, viewH/2 + 50);
+    ctx.font = Math.max(12, Math.floor(viewH/40)) + 'px sans-serif';
+    ctx.fillText('Press R to reset', viewW/2, viewH/2 + Math.max(30, Math.floor(viewH/24)));
   }
 
   console.log('Draw complete');
@@ -284,7 +315,7 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// Initialize game
-console.log('Starting initial draw...');
-draw();
+
+// Initialize game and responsive canvas
+resizeCanvas();
 console.log('Game ready!');
