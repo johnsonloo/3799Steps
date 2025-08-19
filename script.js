@@ -301,6 +301,7 @@ function climbStep() {
   }
 }
 
+
 // Event handlers
 document.getElementById('btnUp').addEventListener('click', climbStep);
 document.getElementById('btnReset').addEventListener('click', resetGame);
@@ -315,6 +316,32 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// Touch controls for mobile
+let touchStartTime = 0;
+let touchTimer = null;
+
+canvas.addEventListener('touchstart', function(e) {
+  e.preventDefault();
+  touchStartTime = Date.now();
+  // Start timer for long press
+  touchTimer = setTimeout(() => {
+    resetGame();
+    touchTimer = null;
+  }, 5000); // 5 seconds hold to reset
+}, { passive: false });
+
+canvas.addEventListener('touchend', function(e) {
+  e.preventDefault();
+  const touchDuration = Date.now() - touchStartTime;
+  if (touchTimer) {
+    clearTimeout(touchTimer);
+    touchTimer = null;
+    // If touch was short, treat as step up
+    if (touchDuration < 5000) {
+      climbStep();
+    }
+  }
+});
 
 // Initialize game and responsive canvas
 resizeCanvas();
