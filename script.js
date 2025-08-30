@@ -14,11 +14,11 @@ if (!canvas || !ctx) {
 function resizeCanvas() {
   // Use device pixel ratio for crisp rendering
   const dpr = window.devicePixelRatio || 1;
-  // Target mobile-friendly size
-  let w = Math.min(window.innerWidth, 480);
-  let h = Math.min(window.innerHeight, 800);
-  // Landscape fallback
-  if (w > h) {
+  // Use full window dimensions for adaptive resolution
+  let w = window.innerWidth;
+  let h = window.innerHeight;
+  // Ensure portrait orientation for mobile
+  if (w > h && h < 600) { // Swap if landscape and height is small (likely mobile)
     [w, h] = [h, w];
   }
   canvas.width = w * dpr;
@@ -56,6 +56,9 @@ let assetsLoaded = false;
 let assetsFailed = false;
 let assetsToLoad = 4;
 let assetsLoadedCount = 0;
+
+// Toggle rendering of characters (set false to show stairs-only like the ASCII sketch)
+const SHOW_CHARACTERS = true;
 
 function showLoadingScreen() {
   ctx.clearRect(0, 0, viewW, viewH);
@@ -112,8 +115,25 @@ function loadAssets() {
 loadAssets();
 
 function getStepXY(i) {
-  const x = margin + i * stepW;
-  const y = margin + (numSteps - i - 1) * stepH;
+  // Calculate positions so steps stack upward from the bottom.
+  // Bottom step (i=0) sits near the bottom-left; each next step
+  // shifts right by `lateralOffset` and up by `verticalOffset` so
+  // the tops form the stacked block appearance from the sketch.
+  const baseX = Math.max(margin, Math.floor(viewW * 0.08));
+  const baseY = viewH - margin - stepH; // front-top Y of the bottom step
+
+  // Use the rendered top 'depth' so each step's top sits on the previous top.
+  // This makes the lateral and vertical shifts equal to the top-face offset,
+  // producing the stacked-block look from the sketch.
+  const depth = Math.max(8, Math.floor(stepW / 8));
+  const lateralOffset = depth;
+  // Use verticalOffset so the next step's front face sits below the previous top.
+  // verticalOffset = stepH + depth ensures the upper block's bottom aligns with
+  // the previous block's top-back edge, producing discrete stacked blocks.
+  const verticalOffset = stepH + depth;
+
+  const x = baseX + i * lateralOffset;
+  const y = baseY - i * verticalOffset;
   return { x, y };
 }
 
@@ -163,9 +183,10 @@ function draw() {
   const camX = charX - viewW/2;
   const camY = charY - viewH/2;
 
-  // Draw visible steps
-  const startStep = Math.max(0, stepPos - 10);
-  const endStep = Math.min(numSteps - 1, stepPos + 10);
+  // Draw steps: iterate the full sequence so the stacked tower exists in full.
+  // The inner visibility check still prevents off-screen rendering for performance.
+  const startStep = 0;
+  const endStep = numSteps - 1;
 
   for (let i = startStep; i <= endStep; i++) {
     const stepXY = getStepXY(i);
@@ -176,61 +197,112 @@ function draw() {
     if (screenX > -stepW && screenX < viewW + stepW &&
         screenY > -stepH && screenY < viewH + stepH) {
 
-      // Draw step
-      ctx.fillStyle = i === stepPos ? '#606060' : '#404040';
+      // Draw 3D step (isometric perspective)
+      const depth = Math.max(8, Math.floor(stepW / 8)); // 3D depth
+      
+      // Step face (front)
+      ctx.fillStyle = i === stepPos ? '#707070' : '#505050';
       ctx.fillRect(screenX, screenY, stepW, stepH);
+      
+      // Step top (lighter)
+      ctx.fillStyle = i === stepPos ? '#909090' : '#707070';
+      ctx.beginPath();
+      ctx.moveTo(screenX, screenY);
+      ctx.lineTo(screenX + depth, screenY - depth);
+      ctx.lineTo(screenX + stepW + depth, screenY - depth);
+      ctx.lineTo(screenX + stepW, screenY);
+      ctx.closePath();
+      ctx.fill();
+      
+      // Step side (darker)
+      ctx.fillStyle = i === stepPos ? '#505050' : '#303030';
+      ctx.beginPath();
+      ctx.moveTo(screenX + stepW, screenY);
+      ctx.lineTo(screenX + stepW + depth, screenY - depth);
+      ctx.lineTo(screenX + stepW + depth, screenY + stepH - depth);
+      ctx.lineTo(screenX + stepW, screenY + stepH);
+      ctx.closePath();
+      ctx.fill();
 
-      // Step border
+      // Step outlines for definition
       ctx.strokeStyle = '#808080';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 1;
       ctx.strokeRect(screenX, screenY, stepW, stepH);
-
-      // Step number
-      ctx.fillStyle = 'white';
-      ctx.font = Math.max(12, Math.floor(stepH/3)) + 'px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(String(i + 1), screenX + stepW/2, screenY + stepH/2 + 5);
+      
+      // Top outline
+      ctx.beginPath();
+      ctx.moveTo(screenX, screenY);
+      ctx.lineTo(screenX + depth, screenY - depth);
+      ctx.lineTo(screenX + stepW + depth, screenY - depth);
+      ctx.lineTo(screenX + stepW, screenY);
+      ctx.stroke();
+      
+      // Side outline
+      ctx.beginPath();
+      ctx.moveTo(screenX + stepW, screenY);
+      ctx.lineTo(screenX + stepW + depth, screenY - depth);
+      ctx.lineTo(screenX + stepW + depth, screenY + stepH - depth);
+      ctx.lineTo(screenX + stepW, screenY + stepH);
+      ctx.stroke();
 
       // Highlight current step
       if (i === stepPos) {
         ctx.strokeStyle = 'yellow';
-        ctx.lineWidth = 3;
-        ctx.strokeRect(screenX - 2, screenY - 2, stepW + 4, stepH + 4);
+        ctx.lineWidth = 2;
+        ctx.strokeRect(screenX - 1, screenY - 1, stepW + 2, stepH + 2);
       }
     }
   }
 
-  // Draw characters on current step
-  const charScreenX = charX - camX;
-  const charScreenY = charY - camY;
+  // Draw characters on current step (place on top face of the isometric step)
+  // Wrapped behind SHOW_CHARACTERS so we can render stairs-only when desired.
+  if (SHOW_CHARACTERS) {
+  // Recompute top surface of the current step so characters' feet rest on it.
+  const depthForChars = Math.max(8, Math.floor(stepW / 8));
+  const currentStep = getStepXY(stepPos);
+  const currentScreenX = currentStep.x - camX;
+  const currentScreenY = currentStep.y - camY; // this is front-top of the step
+  // Top surface Y is above front by 'depthForChars'
+  const topY = currentScreenY - depthForChars;
 
-  // Character 1 (Mo Ran) - red or image
-  if (char2Img && char2Img.complete && !assetsFailed) {
-    const scale = stepH / char2Img.height;
-    const charW = char2Img.width * scale;
-    const charH = stepH;
-    ctx.drawImage(char2Img, charScreenX, charScreenY, charW, charH);
-  } else {
-    // Fallback red rectangle
-    ctx.fillStyle = 'red';
-    ctx.fillRect(charScreenX, charScreenY, Math.max(16, Math.floor(stepW/4)), Math.max(32, Math.floor(stepH*0.8)));
-    ctx.fillStyle = 'darkred';
-    ctx.fillRect(charScreenX + 2, charScreenY + 2, Math.max(12, Math.floor(stepW/5)), Math.max(12, Math.floor(stepH/4))); // head
-  }
+  // Character vertical size (scale to step height)
+  const charHeight = stepH; // characters will be roughly step tall
+  // Character sizing: compute both widths first so positioning can center the pair
+  const leftCharScale = (char2Img && char2Img.height) ? (charHeight / char2Img.height) : 1;
+  const leftCharW = char2Img ? (char2Img.width * leftCharScale) : Math.max(16, Math.floor(stepW / 4));
+  const rightCharScale = (char1Img && char1Img.height) ? (charHeight / char1Img.height) : 1;
+  const rightCharW = char1Img ? (char1Img.width * rightCharScale) : Math.max(16, Math.floor(stepW / 4));
 
-  // Character 2 (Chu Wanning) - blue or image
-  if (char1Img && char1Img.complete && !assetsFailed) {
-    const scale = stepH / char1Img.height;
-    const charW = char1Img.width * scale;
-    const charH = stepH;
-    ctx.drawImage(char1Img, charScreenX + Math.max(24, Math.floor(stepW/3)), charScreenY, charW, charH);
-  } else {
-    // Fallback blue rectangle
-    ctx.fillStyle = 'blue';
-    ctx.fillRect(charScreenX + Math.max(20, Math.floor(stepW/3)), charScreenY, Math.max(16, Math.floor(stepW/4)), Math.max(32, Math.floor(stepH*0.8)));
-    ctx.fillStyle = 'darkblue';
-    ctx.fillRect(charScreenX + Math.max(22, Math.floor(stepW/3)+2), charScreenY + 2, Math.max(12, Math.floor(stepW/5)), Math.max(12, Math.floor(stepH/4))); // head
-  }
+  // Position both characters centered on the step top and touching (small negative gap)
+  const centerX = currentScreenX + Math.floor(stepW * 0.5);
+  const desiredGap = -Math.max(2, Math.floor(stepW * 0.03));
+  const leftCharX = centerX - Math.floor((leftCharW + rightCharW + desiredGap) / 2);
+  const leftCharY = topY - charHeight; // draw so bottom sits on top surface
+  const rightCharX = leftCharX + leftCharW + desiredGap;
+  const rightCharY = leftCharY;
+
+    // Draw left character (Mo Ran)
+    if (char2Img && char2Img.complete && !assetsFailed) {
+      ctx.drawImage(char2Img, leftCharX, leftCharY, leftCharW, charHeight);
+    } else {
+      // Fallback red rectangle for left character (use computed size)
+      ctx.fillStyle = 'red';
+      ctx.fillRect(leftCharX, leftCharY, leftCharW, charHeight);
+      ctx.fillStyle = 'darkred';
+      ctx.fillRect(leftCharX + 2, leftCharY + 2, Math.max(8, Math.floor(leftCharW * 0.6)), Math.max(8, Math.floor(charHeight * 0.25)));
+    }
+
+    // Draw right character (Chu Wanning)
+    if (char1Img && char1Img.complete && !assetsFailed) {
+      ctx.drawImage(char1Img, rightCharX, rightCharY, rightCharW, charHeight);
+    } else {
+      // Fallback blue rectangle for right character (use computed size)
+      ctx.fillStyle = 'blue';
+      ctx.fillRect(rightCharX, rightCharY, rightCharW, charHeight);
+      ctx.fillStyle = 'darkblue';
+      ctx.fillRect(rightCharX + 2, rightCharY + 2, Math.max(8, Math.floor(rightCharW * 0.6)), Math.max(8, Math.floor(charHeight * 0.25)));
+    }
+  } // end SHOW_CHARACTERS
 
   // Draw goal flag on last step
   if (stepPos >= numSteps - 20) { // Show flag when near end
@@ -289,7 +361,6 @@ function draw() {
 function resetGame() {
   stepPos = 0;
   gameOver = false;
-  document.getElementById('btnUp').disabled = false;
   draw();
 }
 
@@ -303,43 +374,82 @@ function climbStep() {
 
 
 // Event handlers
-document.getElementById('btnUp').addEventListener('click', climbStep);
 document.getElementById('btnReset').addEventListener('click', resetGame);
 
-// Keyboard controls
+// Touch and mouse controls for single click or continuous hold
+let stepInterval = null;
+let holdTimer = null;
+let isHolding = false;
+
+function startHoldDetection() {
+  if (holdTimer) return; // Prevent multiple timers
+  holdTimer = setTimeout(() => {
+    isHolding = true;
+    startContinuousStep();
+  }, 300); // 300ms to detect hold
+}
+
+function stopHoldDetection() {
+  if (holdTimer) {
+    clearTimeout(holdTimer);
+    holdTimer = null;
+  }
+  if (!isHolding) {
+    // If not holding, it was a single click/tap
+    climbStep();
+  }
+  isHolding = false;
+  stopContinuousStep();
+}
+
+function startContinuousStep() {
+  if (stepInterval) return; // Prevent multiple intervals
+  stepInterval = setInterval(() => {
+    climbStep();
+  }, 200); // Climb every 200ms while holding
+}
+
+function stopContinuousStep() {
+  if (stepInterval) {
+    clearInterval(stepInterval);
+    stepInterval = null;
+  }
+}
+
+// Touch events
+canvas.addEventListener('touchstart', function(e) {
+  e.preventDefault();
+  startHoldDetection();
+}, { passive: false });
+
+canvas.addEventListener('touchend', function(e) {
+  e.preventDefault();
+  stopHoldDetection();
+}, { passive: false });
+
+// Mouse events
+canvas.addEventListener('mousedown', function(e) {
+  e.preventDefault();
+  startHoldDetection();
+});
+
+canvas.addEventListener('mouseup', function(e) {
+  e.preventDefault();
+  stopHoldDetection();
+});
+
+canvas.addEventListener('mouseleave', function(e) {
+  // Stop if mouse leaves canvas while holding
+  stopHoldDetection();
+});
+
+// Keyboard controls (keep for desktop)
 document.addEventListener('keydown', (e) => {
   const key = e.key.toLowerCase();
   if (key === 'u') {
     climbStep();
   } else if (key === 'r') {
     resetGame();
-  }
-});
-
-// Touch controls for mobile
-let touchStartTime = 0;
-let touchTimer = null;
-
-canvas.addEventListener('touchstart', function(e) {
-  e.preventDefault();
-  touchStartTime = Date.now();
-  // Start timer for long press
-  touchTimer = setTimeout(() => {
-    resetGame();
-    touchTimer = null;
-  }, 5000); // 5 seconds hold to reset
-}, { passive: false });
-
-canvas.addEventListener('touchend', function(e) {
-  e.preventDefault();
-  const touchDuration = Date.now() - touchStartTime;
-  if (touchTimer) {
-    clearTimeout(touchTimer);
-    touchTimer = null;
-    // If touch was short, treat as step up
-    if (touchDuration < 5000) {
-      climbStep();
-    }
   }
 });
 
