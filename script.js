@@ -73,6 +73,21 @@ const bloodDrops = []; // { wx, wy, vx, vy, alpha, r }
 const bloodSplats = []; // { wx, wy, life, alpha, size }
 // Vertical dripping streaks that run down the step faces after a splat (world-space)
 const bloodDrips = []; // { x: wx, y: wy, vy, length, maxLength, alpha, width }
+// Stored per-step deterministic blood patterns (normalized coords)
+const stepBlood = new Map(); // stepIndex -> { splats: [{ox, oy, size, pieces:[{rx,ry,rW,rH,angle}] }], drips: [{ox, oy, maxLength, width}] }
+// Global seed for deterministic generation (change for variety)
+const BLOOD_GLOBAL_SEED = 0;
+
+// small seeded PRNG (mulberry32)
+function mulberry32(a) {
+  return function() {
+    a |= 0;
+    a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
 
 function showLoadingScreen() {
   ctx.clearRect(0, 0, viewW, viewH);
@@ -260,6 +275,55 @@ function draw() {
       ctx.stroke();
 
   // (current-step highlight removed)
+      // Draw stored blood for this step (if any)
+      if (stepBlood.has(i)) {
+        const record = stepBlood.get(i);
+        // draw splats
+        for (let si = 0; si < record.splats.length; si++) {
+          const s = record.splats[si];
+          const wx = stepXY.x + (s.ox * stepW);
+          const wy = stepXY.y + (s.oy * stepH);
+          const sx = wx - camX;
+          const sy = wy - camY;
+          ctx.fillStyle = `rgba(120,0,0,${s.alpha !== undefined ? s.alpha : 1})`;
+          const pieces = s.pieces || (3 + Math.floor(s.size / 8));
+          for (let k = 0; k < pieces; k++) {
+            // use stored piece offsets if present, otherwise random-ish
+            const rx = s.pieces && s.pieces[k] ? s.pieces[k].rx : ( (Math.random() - 0.5) * s.size * 0.8 );
+            const ry = s.pieces && s.pieces[k] ? s.pieces[k].ry : ( (Math.random() - 0.5) * s.size * 0.4 );
+            const rW = s.pieces && s.pieces[k] ? s.pieces[k].rW : (s.size * (0.5 + Math.random() * 0.6));
+            const rH = s.pieces && s.pieces[k] ? s.pieces[k].rH : (rW * (0.35 + Math.random() * 0.5));
+            const angle = s.pieces && s.pieces[k] ? s.pieces[k].angle : (Math.random() * Math.PI);
+            ctx.beginPath();
+            ctx.ellipse(sx + rx, sy + ry, rW, rH, angle, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          // small center
+          ctx.beginPath();
+          ctx.fillStyle = `rgba(90,0,0,${s.alpha !== undefined ? Math.max(0.5, s.alpha) : 1})`;
+          ctx.ellipse(sx, sy, Math.max(2, s.size * 0.25), Math.max(1, s.size * 0.12), 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // draw stored drips
+        for (let di = 0; di < record.drips.length; di++) {
+          const d = record.drips[di];
+          const wx = stepXY.x + (d.ox * stepW);
+          const wy = stepXY.y + (d.oy * stepH);
+          const sx = wx - camX;
+          const sy = wy - camY;
+          ctx.beginPath();
+          ctx.strokeStyle = `rgba(110,10,10,${d.alpha !== undefined ? d.alpha : 1})`;
+          ctx.lineWidth = Math.max(1, d.width);
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(sx, sy + d.length);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.fillStyle = `rgba(150,0,0,${d.alpha !== undefined ? d.alpha : 1})`;
+          ctx.ellipse(sx, sy + d.length + 1, Math.max(1.2, d.width * 0.9), Math.max(1, d.width * 0.5), 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
     }
   }
 
@@ -396,15 +460,49 @@ function climbStep() {
 function spawnBloodAtStep(stepIndex) {
   if (!ENABLE_BLOOD) return;
   const step = getStepXY(stepIndex);
-  // spawn in world coordinates so splats persist on previous steps
+  // Create or reuse a deterministic stored pattern for this step (normalized coords)
+  if (!stepBlood.has(stepIndex)) {
+    const seed = BLOOD_GLOBAL_SEED + stepIndex;
+    const rand = mulberry32(seed);
+    const splatCount = 1 + Math.floor(rand() * 2);
+    const rec = { splats: [], drips: [] };
+    const baseSize = Math.max(6, Math.floor(stepW / 12));
+    for (let si = 0; si < splatCount; si++) {
+      const ox = 0.2 + rand() * 0.6; // normalized across step width
+      const oy = - (rand() * 0.12); // slightly above front top into top-face area
+      const size = baseSize * (0.8 + rand() * 1.2);
+      const pieces = 3 + Math.floor(size / 8);
+      const pieceArr = [];
+      for (let k = 0; k < pieces; k++) {
+        pieceArr.push({
+          rx: (rand() - 0.5) * size * 0.8,
+          ry: (rand() - 0.5) * size * 0.4,
+          rW: size * (0.5 + rand() * 0.6),
+          rH: size * (0.35 + rand() * 0.5),
+          angle: rand() * Math.PI
+        });
+      }
+      rec.splats.push({ ox, oy, size, pieces, alpha: 1, piecesData: pieceArr });
+
+      // generate drips for this splat
+      const dripCount = Math.floor(rand() * 3);
+      for (let di = 0; di < dripCount; di++) {
+        const dox = ox + (rand() - 0.5) * 0.12;
+        const doy = oy + 0.02 + rand() * 0.06;
+        rec.drips.push({ ox: dox, oy: doy, maxLength: 20 + Math.floor(rand() * 60), width: 1 + rand() * 2, alpha: 1, length: 10 + rand() * 30 });
+      }
+    }
+    stepBlood.set(stepIndex, rec);
+  }
+
+  // Still spawn transient animated drops in world-space for the current step so we see falling motion
   const depth = Math.max(8, Math.floor(stepW / 8));
   const baseWX = step.x + Math.floor(stepW * 0.5);
   const baseWY = step.y - depth; // top surface world Y
-
   for (let i = 0; i < BLOOD_PER_STEP; i++) {
     if (bloodDrops.length >= BLOOD_MAX) break;
-    const vx = (Math.random() - 0.5) * 0.6; // world-space horizontal drift
-    const vy = Math.random() * -0.8; // initial upward jitter in world units
+    const vx = (Math.random() - 0.5) * 0.6;
+    const vy = Math.random() * -0.8;
     const wx = baseWX + (Math.random() - 0.5) * stepW * 0.6;
     const wy = baseWY + (Math.random() - 0.5) * 4;
     bloodDrops.push({ wx, wy, vx, vy, alpha: 1, r: Math.max(2, Math.random() * 3) });
