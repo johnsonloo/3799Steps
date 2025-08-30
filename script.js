@@ -60,6 +60,20 @@ let assetsLoadedCount = 0;
 // Toggle rendering of characters (set false to show stairs-only like the ASCII sketch)
 const SHOW_CHARACTERS = true;
 
+// Blood drip effect configuration
+const ENABLE_BLOOD = true;
+const BLOOD_PER_STEP = 4; // droplets spawned per step
+const BLOOD_GRAVITY = 0.35;
+const BLOOD_MAX = 200; // cap total active droplets
+const BLOOD_FADE = 0.02;
+const BLOOD_SPLAT_LIFE = 18;
+
+// Particle arrays (world-space coordinates)
+const bloodDrops = []; // { wx, wy, vx, vy, alpha, r }
+const bloodSplats = []; // { wx, wy, life, alpha, size }
+// Vertical dripping streaks that run down the step faces after a splat (world-space)
+const bloodDrips = []; // { x: wx, y: wy, vy, length, maxLength, alpha, width }
+
 function showLoadingScreen() {
   ctx.clearRect(0, 0, viewW, viewH);
   ctx.fillStyle = '#222';
@@ -170,7 +184,7 @@ function draw() {
     ctx.fillStyle = '#1a3a1a';
     ctx.fillRect(0, 0, viewW, viewH);
   }
-
+  
   // Update debug info
   updateDebugInfo();
 
@@ -245,12 +259,7 @@ function draw() {
       ctx.lineTo(screenX + stepW, screenY + stepH);
       ctx.stroke();
 
-      // Highlight current step
-      if (i === stepPos) {
-        ctx.strokeStyle = 'yellow';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(screenX - 1, screenY - 1, stepW + 2, stepH + 2);
-      }
+  // (current-step highlight removed)
     }
   }
 
@@ -310,7 +319,8 @@ function draw() {
     const flagScreenX = goalXY.x - camX;
     const flagScreenY = goalXY.y - camY - Math.max(40, Math.floor(stepH));
 
-    if (flagScreenX > -50 && flagScreenX < viewW + 50) {
+  if (flagScreenX > -50 && flagScreenX < viewW + 50) {
+
       if (flagImg && flagImg.complete && !assetsFailed) {
         // Draw flag image
         const flagW = stepW * 1.2;
@@ -355,20 +365,156 @@ function draw() {
     ctx.fillText('Press R to reset', viewW/2, viewH/2 + Math.max(30, Math.floor(viewH/24)));
   }
 
+  // Always update & draw blood particles last so they render on top of steps/characters
+  updateBloodParticles(camX, camY);
+
   console.log('Draw complete');
 }
 
 function resetGame() {
   stepPos = 0;
   gameOver = false;
+  // clear existing particles and optionally seed the first step so blood is visible from start
+  bloodDrops.length = 0;
+  bloodSplats.length = 0;
+  bloodDrips.length = 0;
   draw();
+  if (ENABLE_BLOOD && BLOOD_PER_STEP > 0) spawnBloodAtStep(0);
 }
 
 function climbStep() {
   if (!gameOver && stepPos < numSteps - 1) {
     stepPos++;
-    draw();
-    console.log('Climbed to step:', stepPos + 1);
+  // spawn blood at this step (before drawing so it appears immediately)
+  spawnBloodAtStep(stepPos);
+  draw();
+  console.log('Climbed to step:', stepPos + 1);
+  }
+}
+
+// Spawn blood droplets at top of current step
+function spawnBloodAtStep(stepIndex) {
+  if (!ENABLE_BLOOD) return;
+  const step = getStepXY(stepIndex);
+  // spawn in world coordinates so splats persist on previous steps
+  const depth = Math.max(8, Math.floor(stepW / 8));
+  const baseWX = step.x + Math.floor(stepW * 0.5);
+  const baseWY = step.y - depth; // top surface world Y
+
+  for (let i = 0; i < BLOOD_PER_STEP; i++) {
+    if (bloodDrops.length >= BLOOD_MAX) break;
+    const vx = (Math.random() - 0.5) * 0.6; // world-space horizontal drift
+    const vy = Math.random() * -0.8; // initial upward jitter in world units
+    const wx = baseWX + (Math.random() - 0.5) * stepW * 0.6;
+    const wy = baseWY + (Math.random() - 0.5) * 4;
+    bloodDrops.push({ wx, wy, vx, vy, alpha: 1, r: Math.max(2, Math.random() * 3) });
+  }
+}
+
+function updateBloodParticles(camX, camY) {
+  // update drops (world-space -> move in world coords)
+  for (let i = bloodDrops.length - 1; i >= 0; i--) {
+    const p = bloodDrops[i];
+    p.vy += BLOOD_GRAVITY;
+    p.wx += p.vx;
+    p.wy += p.vy;
+    p.alpha -= BLOOD_FADE * 0.5;
+
+    // collision with steps: find nearest step front world Y under particle
+    for (let s = 0; s < 6; s++) {
+      const si = Math.max(0, stepPos - 3 + s);
+      const stepXY = getStepXY(si);
+      const depth = Math.max(8, Math.floor(stepW / 8));
+      const topWY = stepXY.y - depth;
+      const frontWY = stepXY.y + stepH;
+
+      // if particle is between topWY and frontWY and within step world X range, create splat
+      if (p.wx > stepXY.x - 4 && p.wx < stepXY.x + stepW + 4 && p.wy >= topWY && p.wy <= frontWY + 6 && p.vy > 0) {
+        const splatWX = p.wx;
+        const splatWY = Math.min(frontWY, p.wy);
+        const baseSize = Math.max(6, p.r * 2 + Math.random() * 8);
+        bloodSplats.push({ wx: splatWX, wy: splatWY, life: BLOOD_SPLAT_LIFE, alpha: 1, size: baseSize, seed: Math.random() });
+
+        const dripCount = 1 + Math.floor(Math.random() * 3);
+        for (let d = 0; d < dripCount; d++) {
+          const dx = splatWX + (Math.random() - 0.5) * baseSize * 0.8;
+          bloodDrips.push({ wx: dx, wy: splatWY + 2, vy: 0.6 + Math.random() * 1.2, length: 0, maxLength: 20 + Math.random() * 60, alpha: 1, width: 1 + Math.random() * 2 });
+        }
+
+        bloodDrops.splice(i, 1);
+        break;
+      }
+    }
+
+    if (p.alpha <= 0) bloodDrops.splice(i, 1);
+  }
+
+  // update splats
+  for (let i = bloodSplats.length - 1; i >= 0; i--) {
+    const s = bloodSplats[i];
+    s.life--;
+    s.alpha = Math.max(0, s.life / BLOOD_SPLAT_LIFE);
+    if (s.life <= 0) bloodSplats.splice(i, 1);
+  }
+
+  // update drips: grow length, fall, and fade (world-space)
+  for (let i = bloodDrips.length - 1; i >= 0; i--) {
+    const d = bloodDrips[i];
+    d.vy += 0.12;
+    d.length += d.vy;
+    d.wy += d.vy;
+    d.alpha -= 0.005;
+    if (d.length >= d.maxLength || d.alpha <= 0) bloodDrips.splice(i, 1);
+  }
+
+  // draw drops (convert world->screen)
+  for (let i = 0; i < bloodDrops.length; i++) {
+    const p = bloodDrops[i];
+    const sx = p.wx - camX;
+    const sy = p.wy - camY;
+    ctx.beginPath();
+    ctx.fillStyle = `rgba(150,0,0,${Math.max(0, p.alpha)})`;
+    ctx.arc(sx, sy, p.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // draw splats
+  for (let i = 0; i < bloodSplats.length; i++) {
+    const s = bloodSplats[i];
+    const sx = s.wx - camX;
+    const sy = s.wy - camY;
+    ctx.fillStyle = `rgba(120,0,0,${s.alpha})`;
+    const pieces = 3 + Math.floor(s.size / 8);
+    for (let k = 0; k < pieces; k++) {
+      const rx = (Math.random() - 0.5) * s.size * 0.8;
+      const ry = (Math.random() - 0.5) * s.size * 0.4;
+      const rW = s.size * (0.5 + Math.random() * 0.6);
+      const rH = rW * (0.35 + Math.random() * 0.5);
+      ctx.beginPath();
+      ctx.ellipse(sx + rx, sy + ry, rW, rH, Math.random() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.beginPath();
+    ctx.fillStyle = `rgba(90,0,0,${Math.max(0.5, s.alpha)})`;
+    ctx.ellipse(sx, sy, Math.max(2, s.size * 0.25), Math.max(1, s.size * 0.12), 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // draw drips (world->screen)
+  for (let i = 0; i < bloodDrips.length; i++) {
+    const d = bloodDrips[i];
+    const sx = d.wx - camX;
+    const sy = d.wy - camY;
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(110,10,10,${Math.max(0, d.alpha)})`;
+    ctx.lineWidth = Math.max(1, d.width);
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(sx, sy + d.length);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.fillStyle = `rgba(150,0,0,${Math.max(0, d.alpha)})`;
+    ctx.ellipse(sx, sy + d.length + 1, Math.max(1.2, d.width * 0.9), Math.max(1, d.width * 0.5), 0, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 
@@ -455,4 +601,6 @@ document.addEventListener('keydown', (e) => {
 
 // Initialize game and responsive canvas
 resizeCanvas();
+// Seed initial blood at step 0 so the effect is visible immediately (if enabled)
+if (ENABLE_BLOOD && BLOOD_PER_STEP > 0) spawnBloodAtStep(0);
 console.log('Game ready!');
